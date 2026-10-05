@@ -43,7 +43,7 @@ def test_covariance_ignores_the_quaternion_norm():
 
 
 def test_perspective_jacobian_matches_central_differences():
-    assert verify.jacobian_error(seed=3) < 1e-8
+    assert verify.jacobian_error(seed=3) < verify.JACOBIAN_TOLERANCE
 
 
 def test_projected_centre_and_depth_match_the_camera_model(camera):
@@ -65,7 +65,8 @@ def test_low_pass_adds_its_variance_to_the_diagonal_only(camera):
 def test_projected_covariance_matches_monte_carlo_for_a_small_gaussian():
     # Scale 0.02 at distance 3.5: the sampling noise, about sqrt(2 / samples) = 0.2 %,
     # dominates the linearisation error.
-    assert verify.monte_carlo_covariance_error(0.02, MONTE_CARLO_SAMPLES, seed=6) < 0.01
+    error = verify.monte_carlo_covariance_error(0.02, MONTE_CARLO_SAMPLES, seed=6)
+    assert error < verify.MONTE_CARLO_TOLERANCE
 
 
 def test_linearisation_error_grows_with_the_size_of_the_gaussian():

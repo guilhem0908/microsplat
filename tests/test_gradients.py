@@ -14,7 +14,7 @@ def test_autograd_matches_central_differences_on_the_smooth_renderer():
     # alpha_min = 0 removes the visibility threshold, so the render is differentiable.
     errors = verify.gradient_errors(alpha_min=0.0, seed=0)
     assert set(errors) == set(PARAM_NAMES)
-    assert max(errors.values()) < 1e-6
+    assert max(errors.values()) < verify.GRADIENT_TOLERANCE
 
 
 def test_autograd_matches_central_differences_with_the_default_threshold():
@@ -22,7 +22,7 @@ def test_autograd_matches_central_differences_with_the_default_threshold():
     # finite difference agrees unless a pixel crosses alpha_min inside the step, which does
     # not happen for this scene.
     errors = verify.gradient_errors(alpha_min=RasterSettings().alpha_min, seed=0)
-    assert max(errors.values()) < 1e-6
+    assert max(errors.values()) < verify.GRADIENT_TOLERANCE
 
 
 def test_torch_gradcheck_accepts_the_renderer_in_float64():

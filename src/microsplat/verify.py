@@ -15,7 +15,18 @@ from microsplat.gaussians import GaussianCloud
 from microsplat.settings import RasterSettings
 
 FINITE_DIFFERENCE_STEP = 1e-6
+
+# Bounds that the test suite asserts on the quantities measured below.
+JACOBIAN_TOLERANCE = 1e-8
+MONTE_CARLO_TOLERANCE = 0.01  # for the smallest Gaussian, where sampling noise dominates
+PARITY_FLOAT64_TOLERANCE = 1e-10
+PARITY_FLOAT32_TOLERANCE = 1e-5
+GRADIENT_TOLERANCE = 1e-6
+
 CHECK_BACKGROUND = (0.1, 0.2, 0.3)
+PARITY_BUFFERS = ("color", "depth", "alpha")
+#: Centre of the Gaussian used by the Monte-Carlo check, about 3.4 units from the camera.
+MONTE_CARLO_MEAN = (0.2, -0.3, 0.1)
 
 
 def check_camera(width: int, height: int) -> Camera:
@@ -62,12 +73,12 @@ def monte_carlo_covariance_error(scale: float, samples: int, seed: int = 0) -> f
 
     One anisotropic Gaussian with largest standard deviation ``scale`` is sampled in 3D, every
     sample goes through the exact pinhole projection, and the sample covariance of the image
-    points is compared with ``J W Sigma W^T J^T``. The viewing distance is about 3.5, so
-    ``scale / 3.5`` is the relative size of the Gaussian.
+    points is compared with ``J W Sigma W^T J^T``. The viewing distance is about 3.4, so
+    ``scale / 3.4`` is the relative size of the Gaussian.
     """
     cam = check_camera(640, 480)
     cloud = GaussianCloud.from_activated(
-        means=np.array([[0.2, -0.3, 0.1]]),
+        means=np.array([MONTE_CARLO_MEAN]),
         scales=scale * np.array([[1.0, 0.4, 0.7]]),
         quats=np.array([[0.9, 0.2, -0.3, 0.1]]),
         opacities=np.array([0.5]),
@@ -92,10 +103,18 @@ def parity_errors(
     tile_size: int = torch_renderer.DEFAULT_TILE_SIZE,
     chunk_elements: int = torch_renderer.DEFAULT_CHUNK_ELEMENTS,
     settings: RasterSettings | None = None,
-) -> dict[str, float]:
-    """Largest absolute difference between the two renderers on one random scene."""
+) -> dict[str, float | bool]:
+    """Largest absolute difference between the two renderers on one random scene.
+
+    ``same_order`` tells whether both renderers sorted the Gaussians identically. In float32
+    two centres can be closer in depth than the format resolves; they are then composited in
+    the other order, which changes the colour of the pixels they share but not the
+    accumulated opacity, because the product of the ``1 - alpha`` terms does not depend on
+    the order.
+    """
     cam = check_camera(width, height)
     cloud = random_scene(count, seed)
+    settings = settings or RasterSettings()
     expected = reference.render(cloud, cam, np.array(CHECK_BACKGROUND), settings)
     params = torch_renderer.cloud_to_params(cloud, dtype=dtype, device=device)
     with torch.no_grad():
@@ -107,10 +126,15 @@ def parity_errors(
             tile_size=tile_size,
             chunk_elements=chunk_elements,
         )
-    return {
+        twin_depth = torch_renderer.project_gaussians(params, cam, settings)[2]
+    twin_order = torch.argsort(twin_depth, stable=True).cpu().numpy()
+    reference_order = np.argsort(cam.project(cloud.means)[1], kind="stable")
+    errors: dict[str, float | bool] = {
         name: float(np.abs(getattr(actual, name).cpu().numpy() - getattr(expected, name)).max())
-        for name in ("color", "depth", "alpha")
+        for name in PARITY_BUFFERS
     }
+    errors["same_order"] = bool(np.array_equal(twin_order, reference_order))
+    return errors
 
 
 def gradient_errors(alpha_min: float, seed: int = 0, count: int = 6) -> dict[str, float]:

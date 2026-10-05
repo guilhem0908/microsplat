@@ -9,55 +9,66 @@ import torch
 from microsplat import reference, torch_renderer, verify
 from microsplat.settings import RasterSettings
 
-FLOAT64_TOLERANCE = 1e-10
-FLOAT32_TOLERANCE = 1e-5
+FLOAT64_TOLERANCE = verify.PARITY_FLOAT64_TOLERANCE
+FLOAT32_TOLERANCE = verify.PARITY_FLOAT32_TOLERANCE
+
+
+def _worst(errors: dict) -> float:
+    return max(errors[buffer] for buffer in verify.PARITY_BUFFERS)
 
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_float64_twin_matches_the_reference_to_rounding(seed):
     errors = verify.parity_errors(300, seed, torch.float64)
-    assert max(errors.values()) < FLOAT64_TOLERANCE
+    assert errors["same_order"]
+    assert _worst(errors) < FLOAT64_TOLERANCE
 
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
-def test_float32_twin_matches_the_smooth_reference_to_1e_5(seed):
-    # Without the alpha threshold the two renderers differ by float32 rounding only.
-    errors = verify.parity_errors(300, seed, torch.float32, settings=RasterSettings(alpha_min=0.0))
+def test_float32_twin_matches_the_reference_to_1e_5(seed):
+    errors = verify.parity_errors(300, seed, torch.float32)
+    assert errors["same_order"]
     assert errors["color"] < FLOAT32_TOLERANCE
     assert errors["alpha"] < FLOAT32_TOLERANCE
     # Depth values are about 3.5, so their absolute rounding error is larger.
     assert errors["depth"] < 4.0 * FLOAT32_TOLERANCE
 
 
-def test_float32_threshold_flips_are_bounded_by_alpha_min():
-    # In float32 an alpha within rounding distance of alpha_min can land on the other side of
-    # the threshold than in float64. One such flip moves a pixel by at most alpha_min. This
-    # scene (1000 Gaussians, 128 x 128) contains one.
+def test_float32_depth_tie_changes_colour_but_not_opacity():
+    # In this scene two of the 1000 centres are closer in depth than float32 resolves, so the
+    # float32 twin composites them in the other order. The colour of the pixels they share
+    # moves; the accumulated opacity cannot, since prod (1 - alpha) ignores the order.
     errors = verify.parity_errors(1000, 0, torch.float32, width=128, height=128)
-    assert FLOAT32_TOLERANCE < errors["color"] < RasterSettings().alpha_min
+    assert not errors["same_order"]
+    assert errors["color"] > FLOAT32_TOLERANCE
+    assert errors["alpha"] < FLOAT32_TOLERANCE
+    # The same scene in float64 keeps the reference order and matches to rounding.
+    exact = verify.parity_errors(1000, 0, torch.float64, width=128, height=128)
+    assert exact["same_order"]
+    assert _worst(exact) < FLOAT64_TOLERANCE
 
 
 @pytest.mark.parametrize("tile_size", [4, 8, 16, 32])
 def test_tile_size_does_not_change_the_image(tile_size):
     errors = verify.parity_errors(200, 3, torch.float64, tile_size=tile_size)
-    assert max(errors.values()) < FLOAT64_TOLERANCE
+    assert _worst(errors) < FLOAT64_TOLERANCE
 
 
 @pytest.mark.parametrize("chunk_elements", [1, 1 << 10, 1 << 16])
 def test_chunk_budget_does_not_change_the_image(chunk_elements):
     errors = verify.parity_errors(200, 4, torch.float64, chunk_elements=chunk_elements)
-    assert max(errors.values()) < FLOAT64_TOLERANCE
+    assert _worst(errors) < FLOAT64_TOLERANCE
 
 
 def test_image_size_need_not_be_a_multiple_of_the_tile_size():
     errors = verify.parity_errors(100, 5, torch.float64, width=37, height=23, tile_size=16)
-    assert max(errors.values()) < FLOAT64_TOLERANCE
+    assert _worst(errors) < FLOAT64_TOLERANCE
 
 
 def test_parity_holds_without_the_alpha_threshold():
     settings = RasterSettings(alpha_min=0.0)
     errors = verify.parity_errors(100, 6, torch.float64, settings=settings)
-    assert max(errors.values()) < FLOAT64_TOLERANCE
+    assert _worst(errors) < FLOAT64_TOLERANCE
 
 
 def test_culling_is_conservative_for_faint_and_hidden_gaussians(background):
@@ -106,4 +117,4 @@ def test_cuda_twin_matches_the_reference():
     if not torch.cuda.is_available():
         pytest.skip("no CUDA device")
     errors = verify.parity_errors(300, 0, torch.float64, device="cuda")
-    assert max(errors.values()) < FLOAT64_TOLERANCE
+    assert _worst(errors) < FLOAT64_TOLERANCE

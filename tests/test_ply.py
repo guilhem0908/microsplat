@@ -49,5 +49,5 @@ def test_round_trip_preserves_parameters_and_render(tmp_path, camera, background
         np.testing.assert_allclose(getattr(loaded, name), getattr(cloud, name), rtol=1e-6)
     before = reference.render(cloud, camera, background).color
     after = reference.render(loaded, camera, background).color
-    # float32 storage: the image moves by rounding, or by one threshold flip at most.
+    # float32 storage moves the image by rounding only.
     assert np.abs(after - before).max() < 1e-5
