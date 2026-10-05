@@ -30,8 +30,9 @@ DEPTH_ALPHA_THRESHOLD = 0.5
 class FitConfig:
     """Hyper-parameters of one optimisation run.
 
-    The learning rates are those of the reference implementation multiplied by a constant
-    factor (see ``docs/design.md``): its schedule spans 30,000 iterations, this one 3,000.
+    Kerbl et al. use 1.6e-4 (positions), 0.005 (log-scales), 0.001 (rotations), 0.05
+    (opacities) and 0.0025 (colours) over 30,000 iterations. This schedule is ten times
+    shorter, so every rate except the opacity one is larger here (see ``docs/design.md``).
     The position rate is multiplied by the scene extent and decays log-linearly to
     ``lr_means_final_ratio`` times its initial value.
     """
@@ -64,8 +65,8 @@ def evaluate(
     """Mean PSNR and SSIM over ``views`` and the median relative depth error.
 
     The rendered depth is the alpha-weighted depth divided by the accumulated opacity; it is
-    compared with the true surface depth on pixels where the scene has a surface and the
-    render is mostly opaque.
+    compared with the true surface depth on the ``depth_pixels`` pixels, pooled over the
+    views, where the scene has a surface and the render is mostly opaque.
     """
     device, dtype = params["means"].device, params["means"].dtype
     psnrs, ssims, depth_errors = [], [], []
@@ -79,10 +80,12 @@ def evaluate(
         covered = torch.isfinite(true_depth) & (out.alpha > DEPTH_ALPHA_THRESHOLD)
         estimate = out.depth[covered] / out.alpha[covered]
         depth_errors.append(((estimate - true_depth[covered]).abs() / true_depth[covered]).cpu())
+    pooled = torch.cat(depth_errors)
     return {
         "psnr": float(np.mean(psnrs)),
         "ssim": float(np.mean(ssims)),
-        "depth_rel_err_median": float(torch.cat(depth_errors).median()),
+        "depth_rel_err_median": float(pooled.median()),
+        "depth_pixels": len(pooled),
     }
 
 
