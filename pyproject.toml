@@ -7,7 +7,7 @@ name = "microsplat"
 version = "0.1.0"
 description = "3D Gaussian Splatting small enough to read in one sitting: a NumPy reference rasteriser, a differentiable PyTorch twin, and tests that pin every equation."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Guilhem Carmouze" }]
 dependencies = [
@@ -32,7 +32,7 @@ markers = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]
