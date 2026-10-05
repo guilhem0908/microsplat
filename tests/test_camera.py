@@ -54,14 +54,6 @@ def test_pixel_rays_project_back_to_their_pixel_centres():
     np.testing.assert_allclose(uv[:, 1], v.ravel(), atol=1e-9)
 
 
-def test_resizing_keeps_the_field_of_view():
-    cam = _camera_looking_along_x()
-    big = cam.resized(2.0)
-    point = np.array([[4.0, 0.7, -0.4]])
-    np.testing.assert_allclose(big.project(point)[0], 2.0 * cam.project(point)[0], atol=1e-10)
-    assert (big.width, big.height) == (128, 96)
-
-
 def test_orbit_cameras_are_equidistant_and_look_at_the_target():
     target = np.array([0.0, 0.0, 0.25])
     cams = orbit_cameras(

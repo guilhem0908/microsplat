@@ -8,7 +8,7 @@ and row ``j`` covers ``[i, i+1) x [j, j+1)``, so its centre is ``(i + 0.5, j + 0
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -72,18 +72,6 @@ class Camera:
         )
         world_dirs = cam_dirs @ self.rotation  # row-vector form of R^T d
         return world_dirs / np.linalg.norm(world_dirs, axis=-1, keepdims=True)
-
-    def resized(self, scale: float) -> Camera:
-        """Same pose and field of view at ``scale`` times the resolution."""
-        return replace(
-            self,
-            fx=self.fx * scale,
-            fy=self.fy * scale,
-            cx=self.cx * scale,
-            cy=self.cy * scale,
-            width=round(self.width * scale),
-            height=round(self.height * scale),
-        )
 
 
 def look_at(

@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import numpy as np
 import torch
 
 from microsplat.camera import Camera
@@ -41,7 +40,6 @@ class TorchRender:
     depth: torch.Tensor  # (H, W)
     alpha: torch.Tensor  # (H, W)
     means2d: torch.Tensor  # (N, 2) projected centres, part of the autograd graph
-    cov2d: torch.Tensor  # (N, 3) projected covariance entries (xx, xy, yy), with low-pass
     visible: torch.Tensor  # (N,) bool, Gaussians that reached at least one tile
 
 
@@ -277,10 +275,5 @@ def render(
         depth=assemble(depths),
         alpha=assemble(alphas),
         means2d=means2d,
-        cov2d=cov2d,
         visible=visible,
     )
-
-
-def background_tensor(background: np.ndarray | tuple[float, float, float]) -> torch.Tensor:
-    return torch.as_tensor(np.asarray(background, dtype=np.float64))
