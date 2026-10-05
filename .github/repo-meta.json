@@ -1,0 +1,18 @@
+{
+  "description": "3D Gaussian Splatting small enough to read in one sitting: a NumPy reference rasteriser, a differentiable PyTorch twin, and tests that pin every equation.",
+  "topics": [
+    "gaussian-splatting",
+    "3dgs",
+    "differentiable-rendering",
+    "novel-view-synthesis",
+    "computer-vision",
+    "3d-reconstruction",
+    "rasterization",
+    "ewa-splatting",
+    "pytorch",
+    "numpy",
+    "robotics",
+    "python"
+  ],
+  "homepage": ""
+}
