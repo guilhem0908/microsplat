@@ -15,10 +15,10 @@ During my 2026 research internship at AIST (Tsukuba, Japan) I worked on producin
 ## Results
 
 <!-- begin:verdict -->
-**Starting from random Gaussians, 3,000 iterations reach 33.6 dB PSNR on held-out views of the ray-traced `shapes` scene and 53.0 dB on the `knot` scene (mean of 3 seeds). Compared with a fixed set of 3,000 Gaussians, density control changes the PSNR by +0.9 dB on `shapes` and by -3.9 dB on `knot`.**
+**Starting from random Gaussians, 3,000 iterations reach 33.6 dB PSNR on held-out views of the ray-traced `shapes` scene and 53.0 dB on the `knot` scene (mean of 3 seeds; adaptive density control, 1,000 initial Gaussians). A baseline without density control, which has 3,000 Gaussians from the start, scores 0.9 dB lower on `shapes` and 3.9 dB higher on `knot`. The two arms also differ in size, so the `knot` result is not an isolated effect of density control (see below).**
 <!-- end:verdict -->
 <!-- begin:setup -->
-Setup: 128 x 128 images, 24 training views and 8 held-out views per scene, 3,000 iterations, 3 seeds per row (mean ± sample standard deviation), 4 CPU threads per run. The 12 runs, 4 at a time, took 23 minutes in total. Depth error: median of |z - z_true| / z_true over the pixels counted in the last column, pooled over the held-out views.
+Setup: 128 x 128 images, 24 training views and 8 held-out views per scene, 3,000 iterations, 3 seeds per row (mean ± sample standard deviation), 4 CPU threads per run. Adaptive runs start from 1,000 random Gaussians, fixed runs from 3,000. The 12 runs, 4 at a time, took 23 minutes in total. Depth error: median of |z - z_true| / z_true over the pixels counted in the last column, pooled over the held-out views.
 <!-- end:setup -->
 <!-- begin:fit_table -->
 | Scene | Density control | Final Gaussians | PSNR (dB) | SSIM | Median depth error | Depth pixels |
@@ -31,10 +31,14 @@ Setup: 128 x 128 images, 24 training views and 8 held-out views per scene, 3,000
 
 ![Held-out PSNR against iteration for both scenes, with and without density control, three seeds each](docs/psnr_curve.png)
 
+<!-- begin:curve_note -->
+Curve points are taken every 100 iterations and the adaptive runs densify every 100 iterations from iteration 200 to 2,000: each adaptive point in that range is measured right after a clone / split / prune round. The fixed runs have no rounds.
+<!-- end:curve_note -->
+
 <!-- begin:reading -->
 **How to read the table.**
-- `shapes`: density control gains 0.91 dB with 2,088 Gaussians instead of 3,000. The depth metric ranks the two variants the other way round, narrowly (median error 1.17 % for the fixed set against 1.22 %, seed standard deviation 0.02 %): image quality and depth accuracy are different measurements.
-- `knot` is exactly representable, by the 160 Gaussians that generated it, and there the fixed set wins by 3.9 dB. The adaptive curve stays far below until iteration 2,000, the last densification round, and climbs steeply right after it. I did not isolate the cause; one reading is that the clone / split rounds keep disturbing a scene that does not need more Gaussians. The comparison holds for this schedule (3,000 iterations, one hand-set gradient threshold), not in general.
+- `shapes`: density control gains 0.91 dB with 2,088 Gaussians instead of 3,000, starting from 1,000 instead of 3,000. The adaptive runs hold fewer Gaussians than the fixed set at every point of the curve, so the gain is not bought with more of them. The depth metric ranks the two variants the other way round, narrowly (median error 1.17 % for the fixed set against 1.22 %, seed standard deviation 0.02 %): image quality and depth accuracy are different measurements.
+- `knot` is exactly representable, by the 160 Gaussians that generated it, and there the fixed set ends 3.9 dB higher. The cause is not isolated, and three things stand in the way of reading this as an effect of density control. The arms differ in capacity: the adaptive runs start from 1,000 Gaussians and end with 766, the fixed runs have 3,000 from iteration 0. The gap exists before any densification: at iteration 100, ahead of the first round at iteration 200, the adaptive runs are at 21.9 dB against 27.7 dB. And the curve points are locked to the densification rounds (note under the plot): between iterations 2,000 and 2,100, with 766 Gaussians at both, the adaptive PSNR goes from 41.0 to 50.9 dB, so the shape of the adaptive curve, far below until iteration 2,000 and then a steep climb, is partly an artefact of when it is sampled. The final gap is measured 1,000 iterations after the last round and does not suffer from that, but no experiment here separates density control from initial and final size. The comparison holds for this schedule (3,000 iterations, one hand-set gradient threshold), not in general.
 <!-- end:reading -->
 
 **Do the equations hold?** Each row is asserted by the test suite and re-measured by `scripts/reproduce.py`.
@@ -48,7 +52,7 @@ Setup: 128 x 128 images, 24 training views and 8 held-out views per scene, 3,000
 | NumPy vs PyTorch float64, max abs. colour difference (5 scenes of 1,000 Gaussians) | 1.6e-15 | < 1.0e-10 |
 | NumPy vs PyTorch float32, the 3 scenes sorted as in float64 | 6.9e-7 | < 1.0e-5 |
 | NumPy vs PyTorch float32, all 5 scenes (2 with a depth tie) | 3.0e-4 | explained, not bounded |
-| Autograd vs central differences, 5 parameter groups, 3 scenes, max relative error | 8.6e-9 | < 1.0e-6 |
+| Autograd vs central differences, 5 parameter groups, 3 scenes, with and without the alpha threshold, max relative error | 1.6e-8 | < 1.0e-6 |
 <!-- end:verification_table -->
 
 The float32 row that misses 1e-5 is not rounding noise: two centres closer in depth than float32 resolves are sorted the other way round, which changes the colour of the pixels they share and leaves the accumulated opacity untouched. A test asserts exactly that signature.
@@ -61,7 +65,7 @@ The float32 row that misses 1e-5 is not rounding noise: two centres closer in de
 | fitted | 2,051 | 1,488 ms | 19 ms | 51 ms | 33 ms |
 | initial | 1,000 | 614 ms | 14 ms | 46 ms | 37 ms |
 
-Median of 40 measurements at 128 x 128. A step is render + loss + backward + Adam update. Intel(R) Core(TM) i9-14900HX, 8 threads; NVIDIA GeForce RTX 4080 Laptop GPU; PyTorch 2.11.0+cu128. The NumPy reference is the specification, not a fast renderer: it takes 78 times longer than the PyTorch render on the fitted scene. The GPU is a laptop part that was not reserved for the measurement, so read the CUDA column as indicative.
+Median of 40 measurements at 128 x 128. A step is render + loss + backward + Adam update. Intel(R) Core(TM) i9-14900HX, 8 threads; NVIDIA GeForce RTX 4080 Laptop GPU; PyTorch 2.11.0+cu128. The NumPy reference is the specification, not a fast renderer: it takes 78 times longer than the PyTorch render on the fitted scene. The GPU is a laptop part that was not reserved for the measurement, so read the CUDA column as indicative. The steps were timed alone, by a separate stage that runs after the fits. The fits of the study ran 4 at a time with 4 threads each on the same CPU and took 292 to 634 s per run (97 to 211 ms per iteration, densification and the changing Gaussian count included), so the two sets of times should not be compared.
 <!-- end:timing_table -->
 
 Raw data is in [`results/`](results). `scripts/check_readme.py` fails if a number in this section differs from those files.

@@ -11,6 +11,7 @@ Every measured number of the README lives in a block delimited by HTML comments,
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import re
 import sys
@@ -40,24 +41,54 @@ def _group(summary: dict, scene: str, variant: str) -> dict:
     return next(g for g in summary["groups"] if g["scene"] == scene and g["variant"] == variant)
 
 
+def _load_history() -> dict[tuple[str, str, int], dict[str, float]]:
+    """Mean over the seeds of the held-out PSNR and of the Gaussian count, per curve point."""
+    with (RESULTS / "fit_history.csv").open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    points: dict[tuple[str, str, int], list[dict[str, str]]] = {}
+    for row in rows:
+        points.setdefault((row["scene"], row["variant"], int(row["iteration"])), []).append(row)
+    return {
+        key: {
+            "psnr": sum(float(r["psnr"]) for r in group) / len(group),
+            "gaussians": sum(int(r["gaussians"]) for r in group) / len(group),
+        }
+        for key, group in points.items()
+    }
+
+
 def _require(condition: bool, message: str) -> None:
     """The prose around the tables states a ranking; fail loudly if new results reverse it."""
     if not condition:
         raise SystemExit(f"results no longer support the README text: {message}")
 
 
+def _require_phase_lock(config: dict) -> None:
+    """The text says that curve points fall right after the densification rounds."""
+    density = config["density"]
+    _require(
+        config["eval_every"] == density["interval"]
+        and density["start"] % config["eval_every"] == 0,
+        "evaluation points no longer coincide with the densification rounds",
+    )
+
+
 def verdict_block(summary: dict) -> str:
     adaptive = {scene: _group(summary, scene, "adaptive") for scene in SCENES}
     fixed = {scene: _group(summary, scene, "fixed") for scene in SCENES}
     delta = {scene: adaptive[scene]["psnr_mean"] - fixed[scene]["psnr_mean"] for scene in SCENES}
-    iterations = summary["configs"]["adaptive"]["iterations"]
+    _require(delta["shapes"] > 0 > delta["knot"], "adaptive wins on shapes and loses on knot")
+    configs = summary["configs"]
     return (
-        f"**Starting from random Gaussians, {iterations:,} iterations reach "
-        f"{adaptive['shapes']['psnr_mean']:.1f} dB PSNR on held-out views of the ray-traced "
-        f"`shapes` scene and {adaptive['knot']['psnr_mean']:.1f} dB on the `knot` scene "
-        f"(mean of {adaptive['shapes']['runs']} seeds). Compared with a fixed set of "
-        f"{fixed['shapes']['gaussians_mean']:,.0f} Gaussians, density control changes the PSNR "
-        f"by {delta['shapes']:+.1f} dB on `shapes` and by {delta['knot']:+.1f} dB on `knot`.**\n"
+        f"**Starting from random Gaussians, {configs['adaptive']['iterations']:,} iterations "
+        f"reach {adaptive['shapes']['psnr_mean']:.1f} dB PSNR on held-out views of the "
+        f"ray-traced `shapes` scene and {adaptive['knot']['psnr_mean']:.1f} dB on the `knot` "
+        f"scene (mean of {adaptive['shapes']['runs']} seeds; adaptive density control, "
+        f"{configs['adaptive']['initial_gaussians']:,} initial Gaussians). A baseline without "
+        f"density control, which has {configs['fixed']['initial_gaussians']:,} Gaussians from "
+        f"the start, scores {delta['shapes']:.1f} dB lower on `shapes` and "
+        f"{-delta['knot']:.1f} dB higher on `knot`. The two arms also differ in size, so the "
+        "`knot` result is not an isolated effect of density control (see below).**\n"
     )
 
 
@@ -69,14 +100,16 @@ def setup_block(summary: dict) -> str:
         f"{summary['held_out_views']} held-out views per scene, "
         f"{summary['configs']['adaptive']['iterations']:,} iterations, {len(summary['seeds'])} "
         f"seeds per row (mean ± sample standard deviation), "
-        f"{summary['threads_per_run']} CPU threads per run. The {runs} runs, "
+        f"{summary['threads_per_run']} CPU threads per run. Adaptive runs start from "
+        f"{summary['configs']['adaptive']['initial_gaussians']:,} random Gaussians, fixed runs "
+        f"from {summary['configs']['fixed']['initial_gaussians']:,}. The {runs} runs, "
         f"{summary['parallel_runs']} at a time, took {summary['wall_clock_minutes']:.0f} "
         "minutes in total. Depth error: median of |z - z_true| / z_true over the pixels "
         f"counted in the last column, pooled over the held-out views.\n"
     )
 
 
-def reading_block(summary: dict) -> str:
+def reading_block(summary: dict, history: dict) -> str:
     adaptive = {scene: _group(summary, scene, "adaptive") for scene in SCENES}
     fixed = {scene: _group(summary, scene, "fixed") for scene in SCENES}
     delta = {scene: adaptive[scene]["psnr_mean"] - fixed[scene]["psnr_mean"] for scene in SCENES}
@@ -84,24 +117,83 @@ def reading_block(summary: dict) -> str:
     depth = {key: 100 * group["depth_rel_err_median_mean"] for key, group in (
         ("adaptive", adaptive["shapes"]), ("fixed", fixed["shapes"]))}  # fmt: skip
     _require(depth["fixed"] < depth["adaptive"], "fixed set has the lower depth error on shapes")
-    iterations = summary["configs"]["adaptive"]["iterations"]
-    density = summary["configs"]["adaptive"]["density"]
+    configs = summary["configs"]
+    iterations = configs["adaptive"]["iterations"]
+    density = configs["adaptive"]["density"]
+    _require_phase_lock(configs["adaptive"])
+
+    # Facts about the curves that the text quotes; each is checked before it is stated.
+    shapes_points = [
+        it for scene, variant, it in history if (scene, variant) == ("shapes", "fixed")
+    ]
+    _require(
+        all(
+            history["shapes", "adaptive", it]["gaussians"]
+            < history["shapes", "fixed", it]["gaussians"]
+            for it in shapes_points
+        ),
+        "the adaptive runs hold fewer Gaussians than the fixed set at every point of shapes",
+    )
+    first, last, every = density["start"], density["stop"], configs["adaptive"]["eval_every"]
+    before, after = first - every, last + every
+    knot = {
+        (variant, it): history["knot", variant, it]
+        for variant in ("adaptive", "fixed")
+        for it in (before, last, after)
+    }
+    _require(
+        knot["adaptive", before]["psnr"] < knot["fixed", before]["psnr"],
+        "the fixed set is already ahead on knot before the first densification round",
+    )
+    _require(
+        knot["adaptive", last]["gaussians"] == knot["adaptive", after]["gaussians"]
+        and knot["adaptive", after]["psnr"] > knot["adaptive", last]["psnr"],
+        "the adaptive knot PSNR rises between the last round and the next point at constant size",
+    )
     return (
         "**How to read the table.**\n"
         f"- `shapes`: density control gains {delta['shapes']:.2f} dB with "
         f"{adaptive['shapes']['gaussians_mean']:,.0f} Gaussians instead of "
-        f"{fixed['shapes']['gaussians_mean']:,.0f}. The depth metric ranks the two variants the "
-        f"other way round, narrowly (median error {depth['fixed']:.2f} % for the fixed set "
-        f"against {depth['adaptive']:.2f} %, seed standard deviation "
-        f"{100 * adaptive['shapes']['depth_rel_err_median_std']:.2f} %): image quality and "
-        "depth accuracy are different measurements.\n"
+        f"{fixed['shapes']['gaussians_mean']:,.0f}, starting from "
+        f"{configs['adaptive']['initial_gaussians']:,} instead of "
+        f"{configs['fixed']['initial_gaussians']:,}. The adaptive runs hold fewer Gaussians than "
+        "the fixed set at every point of the curve, so the gain is not bought with more of them. "
+        "The depth metric ranks the two variants the other way round, narrowly (median error "
+        f"{depth['fixed']:.2f} % for the fixed set against {depth['adaptive']:.2f} %, seed "
+        f"standard deviation {100 * adaptive['shapes']['depth_rel_err_median_std']:.2f} %): "
+        "image quality and depth accuracy are different measurements.\n"
         f"- `knot` is exactly representable, by the {KNOT_GAUSSIANS} Gaussians that generated "
-        f"it, and there the fixed set wins by {-delta['knot']:.1f} dB. The adaptive curve stays "
-        f"far below until iteration {density['stop']:,}, the last densification round, and "
-        "climbs steeply right after it. I did not isolate the cause; one reading is that the "
-        "clone / split rounds keep disturbing a scene that does not need more Gaussians. "
+        f"it, and there the fixed set ends {-delta['knot']:.1f} dB higher. The cause is not "
+        "isolated, and three things stand in the way of reading this as an effect of density "
+        "control. The arms differ in capacity: the adaptive runs start from "
+        f"{configs['adaptive']['initial_gaussians']:,} Gaussians and end with "
+        f"{adaptive['knot']['gaussians_mean']:,.0f}, the fixed runs have "
+        f"{fixed['knot']['gaussians_mean']:,.0f} from iteration 0. The gap exists before any "
+        f"densification: at iteration {before}, ahead of the first round at iteration {first}, "
+        f"the adaptive runs are at {knot['adaptive', before]['psnr']:.1f} dB against "
+        f"{knot['fixed', before]['psnr']:.1f} dB. And the curve points are locked to the "
+        f"densification rounds (note under the plot): between iterations {last:,} and "
+        f"{after:,}, with {knot['adaptive', after]['gaussians']:,.0f} Gaussians at both, the "
+        f"adaptive PSNR goes from {knot['adaptive', last]['psnr']:.1f} to "
+        f"{knot['adaptive', after]['psnr']:.1f} dB, so the shape of the adaptive curve, far below "
+        f"until iteration {last:,} and then a steep climb, is partly an artefact of when it is "
+        f"sampled. The final gap is measured {iterations - last:,} iterations after the last "
+        "round and does not suffer from that, but no experiment here separates density control "
+        "from initial and final size. "
         f"The comparison holds for this schedule ({iterations:,} iterations, one hand-set "
         "gradient threshold), not in general.\n"
+    )
+
+
+def curve_note_block(summary: dict) -> str:
+    config = summary["configs"]["adaptive"]
+    density = config["density"]
+    _require_phase_lock(config)
+    return (
+        f"Curve points are taken every {config['eval_every']} iterations and the adaptive runs "
+        f"densify every {density['interval']} iterations from iteration {density['start']:,} to "
+        f"{density['stop']:,}: each adaptive point in that range is measured right after a "
+        "clone / split / prune round. The fixed runs have no rounds.\n"
     )
 
 
@@ -162,9 +254,10 @@ def verification_table(checks: dict) -> str:
             "explained, not bounded",
         ),
         (
-            f"Autograd vs central differences, 5 parameter groups, {checks['gradient_seeds']} "
-            "scenes, max relative error",
-            _sci(max(gradients["without_threshold"].values())),
+            f"Autograd vs central differences, {len(gradients['with_threshold'])} parameter "
+            f"groups, {checks['gradient_seeds']} scenes, with and without the alpha threshold, "
+            "max relative error",
+            _sci(max(max(errors.values()) for errors in gradients.values())),
             f"< {_sci(verify.GRADIENT_TOLERANCE)}",
         ),
     ]
@@ -173,7 +266,7 @@ def verification_table(checks: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def timing_table(timing: dict) -> str:
+def timing_table(timing: dict, summary: dict) -> str:
     size = timing["resolution"]
     has_cuda = timing["cuda_name"] is not None
     header = (
@@ -213,6 +306,18 @@ def timing_table(timing: dict) -> str:
             " The GPU is a laptop part that was not reserved for the measurement, so read the "
             "CUDA column as indicative."
         )
+    # The study of the section above is much slower per iteration than these steps suggest.
+    seconds = [group["seconds_mean"] for group in summary["groups"]]
+    iterations = summary["configs"]["adaptive"]["iterations"]
+    per_iteration = [1000 * value / iterations for value in seconds]
+    note += (
+        " The steps were timed alone, by a separate stage that runs after the fits. The fits of "
+        f"the study ran {summary['parallel_runs']} at a time with {summary['threads_per_run']} "
+        f"threads each on the same CPU and took {min(seconds):.0f} to {max(seconds):.0f} s per "
+        f"run ({min(per_iteration):.0f} to {max(per_iteration):.0f} ms per iteration, "
+        "densification and the changing Gaussian count included), so the two sets of times "
+        "should not be compared."
+    )
     return "\n".join(lines) + "\n" + note + "\n"
 
 
@@ -222,9 +327,10 @@ def build_blocks() -> dict[str, str]:
         "verdict": verdict_block(summary),
         "setup": setup_block(summary),
         "fit_table": fit_table(summary),
-        "reading": reading_block(summary),
+        "curve_note": curve_note_block(summary),
+        "reading": reading_block(summary, _load_history()),
         "verification_table": verification_table(_load("verification.json")),
-        "timing_table": timing_table(_load("timing.json")),
+        "timing_table": timing_table(_load("timing.json"), summary),
     }
 
 
