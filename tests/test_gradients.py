@@ -53,6 +53,24 @@ def test_training_loss_has_finite_gradients_for_every_parameter():
         assert grad.abs().max() > 0.0, name
 
 
+def test_a_view_in_which_nothing_is_visible_still_backpropagates():
+    # Every Gaussian behind the camera: no tile holds a Gaussian, the image is the background.
+    cam = verify.check_camera(32, 24)
+    cloud = verify.random_scene(20, seed=3)
+    cloud.means[:] = cam.position - 2.0 * cam.rotation[2]
+    params = torch_renderer.cloud_to_params(cloud, requires_grad=True)
+    background = torch.full((3,), 0.25)
+    out = torch_renderer.render(params, cam, background)
+    out.means2d.retain_grad()
+    assert not out.visible.any()
+    assert torch.equal(out.color, background.expand_as(out.color))
+    (out.color.sum() + out.depth.sum() + out.alpha.sum()).backward()
+    assert float(out.means2d.grad.abs().max()) == 0.0
+    for name in PARAM_NAMES:
+        assert params[name].grad is not None, name
+        assert float(params[name].grad.abs().max()) == 0.0, name
+
+
 def test_gaussians_behind_the_camera_receive_zero_gradient():
     cam = verify.check_camera(32, 24)
     cloud = verify.random_scene(20, seed=3)

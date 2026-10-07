@@ -217,9 +217,14 @@ def render(
     for tiles in chunks:
         k_max = int(counts[tiles].max())
         if k_max == 0:
-            colors.append(background.expand(len(tiles), pixels, 3))
-            depths.append(torch.zeros(len(tiles), pixels, dtype=dtype, device=device))
-            alphas.append(torch.zeros(len(tiles), pixels, dtype=dtype, device=device))
+            # Nothing reaches these tiles. The buffers still depend on every parameter and on
+            # the projected centres, with a zero gradient, so that a view in which nothing is
+            # visible can go through ``backward()`` (and feed the densification statistics)
+            # instead of raising because the output has no graph.
+            zero = 0.0 * (sum(p.sum() for p in params.values()) + means2d.sum())
+            colors.append(background.expand(len(tiles), pixels, 3) + zero)
+            depths.append(torch.zeros(len(tiles), pixels, dtype=dtype, device=device) + zero)
+            alphas.append(torch.zeros(len(tiles), pixels, dtype=dtype, device=device) + zero)
             continue
 
         # Padded (tiles, K) table of depth-sorted Gaussian indices.
