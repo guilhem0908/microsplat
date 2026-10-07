@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import multiprocessing
 import os
 import platform
 import statistics
@@ -219,21 +220,24 @@ def _hero_iterations(iterations: int, frames: int) -> tuple[int, ...]:
 
 def stage_fit(budget: Budget, results_dir: Path, docs_dir: Path, jobs: int) -> None:
     started = time.perf_counter()
-    todo = []
+    queue = []
     for scene in SCENE_NAMES:
         for variant in VARIANTS:
             config = getattr(budget, variant)
             for seed in budget.seeds:
                 hero = (scene, variant, seed) == HERO_RUN
                 snapshots = _hero_iterations(config.iterations, budget.hero_frames) if hero else ()
-                todo.append(
+                queue.append(
                     FitJob(scene, variant, seed, budget.resolution, config, FIT_THREADS, snapshots)
                 )
     if jobs > 1:
-        with ProcessPoolExecutor(max_workers=jobs) as pool:
-            outputs = list(pool.map(run_fit, todo))
+        # "spawn" on every platform: forking a process that already ran threaded PyTorch
+        # code is not safe.
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=jobs, mp_context=context) as pool:
+            outputs = list(pool.map(run_fit, queue))
     else:
-        outputs = [run_fit(job) for job in todo]
+        outputs = [run_fit(job) for job in queue]
     wall_clock = time.perf_counter() - started
 
     history_rows, run_rows = [], []
