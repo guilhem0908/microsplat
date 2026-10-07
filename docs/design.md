@@ -28,7 +28,9 @@ that is what the `.ply` exchange format stores.
 
 OpenCV convention: $t = W p + T$, the camera looks along $+z$, $x$ right, $y$ down, and
 
-$$u = f_x \frac{t_x}{t_z} + c_x, \qquad v = f_y \frac{t_y}{t_z} + c_y .$$
+```math
+u = f_x \frac{t_x}{t_z} + c_x, \qquad v = f_y \frac{t_y}{t_z} + c_y .
+```
 
 Pixel $(i, j)$ covers $[i, i+1) \times [j, j+1)$ and is sampled at its centre
 $(i + 0.5,\ j + 0.5)$. The ray tracer that produces the ground truth uses the same convention;
@@ -41,14 +43,18 @@ A Gaussian pushed through a perspective projection $\pi$ is no longer a Gaussian
 splatting (Zwicker et al. 2002) replaces $\pi$ by its first-order expansion at the centre
 $t_0 = W\mu + T$:
 
-$$\pi(t) \approx \pi(t_0) + J\,(t - t_0), \qquad
+```math
+\pi(t) \approx \pi(t_0) + J\,(t - t_0), \qquad
 J = \frac{\partial \pi}{\partial t}\Big|_{t_0} =
-\begin{pmatrix} f_x/t_z & 0 & -f_x t_x / t_z^2 \\ 0 & f_y/t_z & -f_y t_y / t_z^2 \end{pmatrix}.$$
+\begin{pmatrix} f_x/t_z & 0 & -f_x t_x / t_z^2 \\ 0 & f_y/t_z & -f_y t_y / t_z^2 \end{pmatrix}.
+```
 
 The image of $\mathcal N(\mu, \Sigma)$ under an affine map $p \mapsto A p + b$ is
 $\mathcal N(A\mu + b,\ A \Sigma A^\top)$. With $A = J W$ this gives eq. 5:
 
-$$\mu' = \pi(W\mu + T), \qquad \Sigma' = J W \Sigma W^\top J^\top .$$
+```math
+\mu' = \pi(W\mu + T), \qquad \Sigma' = J W \Sigma W^\top J^\top .
+```
 
 The neglected terms are of second order in (size of the Gaussian) / (depth). Two tests bracket
 this: $J$ is compared with central differences of $\pi$, and $\Sigma'$ is compared with the
@@ -68,12 +74,16 @@ Emission-absorption volume rendering along a ray gives $C = \int T(s)\,\sigma(s)
 with $T(s) = \exp(-\int_0^s \sigma)$. Cut into ordered slabs of opacity $\alpha_i$, it becomes
 eq. 3:
 
-$$C = \sum_i c_i\,\alpha_i\,T_i + T_{\text{end}}\,c_{\text{bg}}, \qquad
-T_i = \prod_{j<i} (1 - \alpha_j).$$
+```math
+C = \sum_i c_i\,\alpha_i\,T_i + T_{\text{end}}\,c_{\text{bg}}, \qquad
+T_i = \prod_{j<i} (1 - \alpha_j).
+```
 
 3DGS takes each Gaussian as one slab located at the depth of its centre, with
 
-$$\alpha_i(x) = \min\!\big(0.99,\ o_i \exp(-\tfrac12 (x-\mu_i')^\top \Sigma_i'^{-1} (x-\mu_i'))\big),$$
+```math
+\alpha_i(x) = \min\!\big(0.99,\ o_i \exp(-\tfrac12 (x-\mu_i')^\top \Sigma_i'^{-1} (x-\mu_i'))\big),
+```
 
 set to zero below $1/255$. Consequences that the tests pin:
 
@@ -93,8 +103,10 @@ depth of the ray, which is what the depth-error metric uses.
 
 The threshold gives every Gaussian compact support:
 
-$$o\,e^{-\frac12 d^\top \Sigma'^{-1} d} \ge \alpha_{\min}
-\iff d^\top \Sigma'^{-1} d \le k, \qquad k = 2 \ln (o / \alpha_{\min}).$$
+```math
+o\,e^{-\frac12 d^\top \Sigma'^{-1} d} \ge \alpha_{\min}
+\iff d^\top \Sigma'^{-1} d \le k, \qquad k = 2 \ln (o / \alpha_{\min}).
+```
 
 The largest $d_x$ on that ellipse is $\sqrt{k\,\Sigma'_{xx}}$ (support function of an ellipse;
 one Lagrange multiplier), and likewise for $d_y$. The axis-aligned box of half-sizes
