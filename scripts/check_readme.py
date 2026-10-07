@@ -17,11 +17,13 @@ import sys
 from pathlib import Path
 
 from microsplat import verify
+from microsplat.scenes import KNOT_GAUSSIANS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 README = REPO_ROOT / "README.md"
 RESULTS = REPO_ROOT / "results"
 BLOCK = re.compile(r"(<!-- begin:(\w+) -->\n)(.*?)(<!-- end:\2 -->)", re.DOTALL)
+SCENES = ("shapes", "knot")
 VARIANT_NAMES = {"adaptive": "adaptive (clone / split / prune)", "fixed": "none (fixed set)"}
 
 
@@ -38,28 +40,68 @@ def _group(summary: dict, scene: str, variant: str) -> dict:
     return next(g for g in summary["groups"] if g["scene"] == scene and g["variant"] == variant)
 
 
+def _require(condition: bool, message: str) -> None:
+    """The prose around the tables states a ranking; fail loudly if new results reverse it."""
+    if not condition:
+        raise SystemExit(f"results no longer support the README text: {message}")
+
+
 def verdict_block(summary: dict) -> str:
-    shapes, knot = (_group(summary, scene, "adaptive") for scene in ("shapes", "knot"))
-    shapes_fixed, knot_fixed = (_group(summary, scene, "fixed") for scene in ("shapes", "knot"))
+    adaptive = {scene: _group(summary, scene, "adaptive") for scene in SCENES}
+    fixed = {scene: _group(summary, scene, "fixed") for scene in SCENES}
+    delta = {scene: adaptive[scene]["psnr_mean"] - fixed[scene]["psnr_mean"] for scene in SCENES}
     iterations = summary["configs"]["adaptive"]["iterations"]
     return (
         f"**Starting from random Gaussians, {iterations:,} iterations reach "
-        f"{shapes['psnr_mean']:.1f} dB PSNR on held-out views of the ray-traced `shapes` scene "
-        f"and {knot['psnr_mean']:.1f} dB on the `knot` scene (mean of {shapes['runs']} seeds); "
-        f"without density control the same loop stops at {shapes_fixed['psnr_mean']:.1f} dB and "
-        f"{knot_fixed['psnr_mean']:.1f} dB with more Gaussians.**\n"
+        f"{adaptive['shapes']['psnr_mean']:.1f} dB PSNR on held-out views of the ray-traced "
+        f"`shapes` scene and {adaptive['knot']['psnr_mean']:.1f} dB on the `knot` scene "
+        f"(mean of {adaptive['shapes']['runs']} seeds). Compared with a fixed set of "
+        f"{fixed['shapes']['gaussians_mean']:,.0f} Gaussians, density control changes the PSNR "
+        f"by {delta['shapes']:+.1f} dB on `shapes` and by {delta['knot']:+.1f} dB on `knot`.**\n"
     )
 
 
 def setup_block(summary: dict) -> str:
     size = summary["resolution"]
+    runs = sum(group["runs"] for group in summary["groups"])
     return (
         f"Setup: {size} x {size} images, {summary['training_views']} training views and "
         f"{summary['held_out_views']} held-out views per scene, "
         f"{summary['configs']['adaptive']['iterations']:,} iterations, {len(summary['seeds'])} "
         f"seeds per row (mean ± sample standard deviation), "
-        f"{summary['threads_per_run']} CPU threads per run. The {summary['parallel_runs']} runs "
-        f"executed in parallel took {summary['wall_clock_minutes']:.0f} minutes in total.\n"
+        f"{summary['threads_per_run']} CPU threads per run. The {runs} runs, "
+        f"{summary['parallel_runs']} at a time, took {summary['wall_clock_minutes']:.0f} "
+        "minutes in total. Depth error: median of |z - z_true| / z_true over the pixels "
+        f"counted in the last column, pooled over the held-out views.\n"
+    )
+
+
+def reading_block(summary: dict) -> str:
+    adaptive = {scene: _group(summary, scene, "adaptive") for scene in SCENES}
+    fixed = {scene: _group(summary, scene, "fixed") for scene in SCENES}
+    delta = {scene: adaptive[scene]["psnr_mean"] - fixed[scene]["psnr_mean"] for scene in SCENES}
+    _require(delta["shapes"] > 0 > delta["knot"], "density control helps on shapes, not on knot")
+    depth = {key: 100 * group["depth_rel_err_median_mean"] for key, group in (
+        ("adaptive", adaptive["shapes"]), ("fixed", fixed["shapes"]))}  # fmt: skip
+    _require(depth["fixed"] < depth["adaptive"], "fixed set has the lower depth error on shapes")
+    iterations = summary["configs"]["adaptive"]["iterations"]
+    density = summary["configs"]["adaptive"]["density"]
+    return (
+        "**How to read the table.**\n"
+        f"- `shapes`: density control gains {delta['shapes']:.2f} dB with "
+        f"{adaptive['shapes']['gaussians_mean']:,.0f} Gaussians instead of "
+        f"{fixed['shapes']['gaussians_mean']:,.0f}. The depth metric ranks the two variants the "
+        f"other way round, narrowly (median error {depth['fixed']:.2f} % for the fixed set "
+        f"against {depth['adaptive']:.2f} %, seed standard deviation "
+        f"{100 * adaptive['shapes']['depth_rel_err_median_std']:.2f} %): image quality and "
+        "depth accuracy are different measurements.\n"
+        f"- `knot` is exactly representable, by the {KNOT_GAUSSIANS} Gaussians that generated "
+        f"it, and there the fixed set wins by {-delta['knot']:.1f} dB. The adaptive curve stays "
+        f"far below until iteration {density['stop']:,}, the last densification round, and "
+        "climbs steeply right after it. I did not isolate the cause; one reading is that the "
+        "clone / split rounds keep disturbing a scene that does not need more Gaussians. "
+        f"The comparison holds for this schedule ({iterations:,} iterations, one hand-set "
+        "gradient threshold), not in general.\n"
     )
 
 
@@ -158,9 +200,20 @@ def timing_table(timing: dict) -> str:
         devices += f"; {timing['cuda_name']}"
     note = (
         f"\nMedian of {timing['timed_steps']} measurements at {size} x {size}. A step is "
-        f"render + loss + backward + Adam update. {devices}; PyTorch {timing['torch']}.\n"
+        f"render + loss + backward + Adam update. {devices}; PyTorch {timing['torch']}."
     )
-    return "\n".join(lines) + "\n" + note
+    fitted = timing["states"]["fitted"]
+    ratio = fitted["numpy_reference_forward_ms_median"] / fitted["cpu"]["forward_ms_median"]
+    note += (
+        f" The NumPy reference is the specification, not a fast renderer: it takes {ratio:.0f} "
+        "times longer than the PyTorch render on the fitted scene."
+    )
+    if has_cuda:
+        note += (
+            " The GPU is a laptop part that was not reserved for the measurement, so read the "
+            "CUDA column as indicative."
+        )
+    return "\n".join(lines) + "\n" + note + "\n"
 
 
 def build_blocks() -> dict[str, str]:
@@ -169,6 +222,7 @@ def build_blocks() -> dict[str, str]:
         "verdict": verdict_block(summary),
         "setup": setup_block(summary),
         "fit_table": fit_table(summary),
+        "reading": reading_block(summary),
         "verification_table": verification_table(_load("verification.json")),
         "timing_table": timing_table(_load("timing.json")),
     }
