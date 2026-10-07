@@ -1,0 +1,70 @@
+{
+  "jacobian_max_relative_error": 1.1715021207425153e-10,
+  "monte_carlo_covariance": [
+    {
+      "scale": 0.02,
+      "scale_over_distance": 0.005900244127651278,
+      "samples": 1000000,
+      "relative_error": 0.0021971913211007725
+    },
+    {
+      "scale": 0.1,
+      "scale_over_distance": 0.02950122063825639,
+      "samples": 1000000,
+      "relative_error": 0.0010091026726186168
+    },
+    {
+      "scale": 0.3,
+      "scale_over_distance": 0.08850366191476916,
+      "samples": 1000000,
+      "relative_error": 0.024198212464222338
+    },
+    {
+      "scale": 0.6,
+      "scale_over_distance": 0.17700732382953832,
+      "samples": 1000000,
+      "relative_error": 0.1114130874041265
+    }
+  ],
+  "parity": {
+    "scenes": 5,
+    "gaussians": 1000,
+    "resolution": [
+      128,
+      128
+    ],
+    "float64_max_abs_error": {
+      "color": 1.5543122344752192e-15,
+      "depth": 6.661338147750939e-15,
+      "alpha": 1.3322676295501878e-15
+    },
+    "float32_scenes_with_reference_depth_order": 3,
+    "float32_max_abs_error_same_depth_order": {
+      "color": 6.938685315205362e-07,
+      "depth": 1.5229500124336326e-06,
+      "alpha": 5.98368709803232e-07
+    },
+    "float32_max_abs_error_all_scenes": {
+      "color": 0.0003002027155795117,
+      "depth": 1.4108047197591844e-05,
+      "alpha": 6.623071081568455e-07
+    }
+  },
+  "gradient_seeds": 3,
+  "gradient_max_relative_error": {
+    "without_threshold": {
+      "means": 1.4581743553228968e-09,
+      "log_scales": 8.747632029557353e-10,
+      "quats": 4.71431900981485e-09,
+      "opacity_logits": 1.3983582704921905e-09,
+      "sh_dc": 8.564133182086685e-09
+    },
+    "with_threshold": {
+      "means": 1.63942289614694e-09,
+      "log_scales": 9.001999452475513e-10,
+      "quats": 3.6797131739168732e-09,
+      "opacity_logits": 1.9488247157617782e-09,
+      "sh_dc": 1.5817846266261303e-08
+    }
+  }
+}

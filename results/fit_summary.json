@@ -1,0 +1,117 @@
+{
+  "resolution": 128,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "training_views": 24,
+  "held_out_views": 8,
+  "threads_per_run": 4,
+  "parallel_runs": 4,
+  "wall_clock_minutes": 23.48758481333328,
+  "configs": {
+    "adaptive": {
+      "iterations": 3000,
+      "initial_gaussians": 1000,
+      "lr_means": 0.0008,
+      "lr_means_final_ratio": 0.02,
+      "lr_log_scales": 0.01,
+      "lr_quats": 0.002,
+      "lr_opacity_logits": 0.05,
+      "lr_sh_dc": 0.01,
+      "density": {
+        "start": 200,
+        "stop": 2000,
+        "interval": 100,
+        "grad_threshold": 4e-05,
+        "split_scale": 0.01,
+        "prune_opacity": 0.005,
+        "max_gaussians": 3000
+      },
+      "eval_every": 100,
+      "seed": 0,
+      "device": "cpu"
+    },
+    "fixed": {
+      "iterations": 3000,
+      "initial_gaussians": 3000,
+      "lr_means": 0.0008,
+      "lr_means_final_ratio": 0.02,
+      "lr_log_scales": 0.01,
+      "lr_quats": 0.002,
+      "lr_opacity_logits": 0.05,
+      "lr_sh_dc": 0.01,
+      "density": null,
+      "eval_every": 100,
+      "seed": 0,
+      "device": "cpu"
+    }
+  },
+  "groups": [
+    {
+      "scene": "shapes",
+      "variant": "adaptive",
+      "runs": 3,
+      "psnr_mean": 33.552834828694664,
+      "psnr_std": 0.21435883397832942,
+      "ssim_mean": 0.9807063564658165,
+      "ssim_std": 0.0008789882443531657,
+      "depth_rel_err_median_mean": 0.012203713258107504,
+      "depth_rel_err_median_std": 0.00015878899465308026,
+      "gaussians_mean": 2087.6666666666665,
+      "gaussians_std": 60.07772743149772,
+      "seconds_mean": 634.2303631332858,
+      "seconds_std": 2.739142111154833,
+      "depth_pixels_mean": 44391.666666666664
+    },
+    {
+      "scene": "shapes",
+      "variant": "fixed",
+      "runs": 3,
+      "psnr_mean": 32.64250055948893,
+      "psnr_std": 0.20578248729886034,
+      "ssim_mean": 0.9795046771566073,
+      "ssim_std": 0.0009799312189251639,
+      "depth_rel_err_median_mean": 0.011681025847792625,
+      "depth_rel_err_median_std": 0.00023668003841229718,
+      "gaussians_mean": 3000.0,
+      "gaussians_std": 0.0,
+      "seconds_mean": 509.088042133187,
+      "seconds_std": 147.65068221107364,
+      "depth_pixels_mean": 44252.333333333336
+    },
+    {
+      "scene": "knot",
+      "variant": "adaptive",
+      "runs": 3,
+      "psnr_mean": 53.04263162612915,
+      "psnr_std": 0.25835394248655336,
+      "ssim_mean": 0.9998268286387125,
+      "ssim_std": 8.843987718613084e-06,
+      "depth_rel_err_median_mean": 0.0011921343005572755,
+      "depth_rel_err_median_std": 2.3317745588806705e-05,
+      "gaussians_mean": 766.3333333333334,
+      "gaussians_std": 8.504900548115382,
+      "seconds_mean": 297.1491428665322,
+      "seconds_std": 11.127828711531414,
+      "depth_pixels_mean": 18543.666666666668
+    },
+    {
+      "scene": "knot",
+      "variant": "fixed",
+      "runs": 3,
+      "psnr_mean": 56.987523873647056,
+      "psnr_std": 1.0347614449726066,
+      "ssim_mean": 0.9999173954129219,
+      "ssim_std": 1.1491145693375772e-05,
+      "depth_rel_err_median_mean": 0.00023617653156785914,
+      "depth_rel_err_median_std": 1.6329332271758372e-05,
+      "gaussians_mean": 3000.0,
+      "gaussians_std": 0.0,
+      "seconds_mean": 292.0627198665995,
+      "seconds_std": 20.144961258900445,
+      "depth_pixels_mean": 18541.666666666668
+    }
+  ]
+}
